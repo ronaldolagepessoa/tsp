@@ -5,24 +5,27 @@ from random import uniform
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import ast
+import pprint
 from numpy import ones, vstack, arange
 from numpy.linalg import lstsq
+from statistics import mean
 
 
 class TSPModel:
 
     def __init__(self, entrada):
-        self.coords = entrada['coords']
+        self.coordinates = entrada['coords']
         self.tempo_atendimento = entrada['tempo_atendimento']
         self.tempo_km = entrada['tempo_km']
         self.horas_dia = entrada['horas_dia']
-        if self.coords != None:
-            self.n = len(self.coords)
-            self.all_nodes = list(self.coords.keys())
+        if self.coordinates is not None:
+            self.n = len(self.coordinates)
+            self.all_nodes = list(self.coordinates.keys())
             self.all_nodes.sort()
             self.client_nodes = self.all_nodes[1:]
         else:
             self.n = 0
+        self.d = None
         self.distance_set()
         self.start_point = None
         self.output = {
@@ -32,30 +35,60 @@ class TSPModel:
             'total_number_of_days': 0,
             'sequences': []
         }
+        self.salesman = None
         self.spreadsheet_name = None
+        self.data = None
+        self.nodes_set_f = None
+        self.nodes_set_t = None
+        self.nodes_set = None
+        self.x = None
+        self.arcs_sequence = None
 
-    def get_data(self):
+    @staticmethod
+    def connect_to_google():
         scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
         try:
             credentials = ServiceAccountCredentials.from_json_keyfile_name("Legislator-b96aaa67134d.json", scope)
-            gc = gspread.authorize(credentials)
+            return gspread.authorize(credentials)
         except:
             print('Erro na conexcao')
             exit()
+
+    def get_salesman(self):
+        gc = self.connect_to_google()
+        wks = gc.open('vendedores ativos').get_worksheet(0)
+        data = wks.get_all_records()
+        self.salesman = [{'nome': d['VENDEDOR'], 'id': d['COD_VENDEDOR'], 'origem': ast.literal_eval(d['Coordenada'])} for d in data]
+
+    def get_coordinates(self, i):
+        gc = self.connect_to_google()
+        wks = gc.open('lista de clientes').worksheet(str(self.salesman[i]['id']))
+        self.data = wks.get_all_records()
+        self.coordinates = {
+            i + 1: (float(coord['Latitude']), float(coord['Longitude']))
+            for i, coord in enumerate(self.data)
+        }
+        self.coordinates[0] = self.salesman[i]['origem']
+        self.all_nodes = list(self.coordinates.keys())
+        self.all_nodes.sort()
+        self.client_nodes = self.all_nodes[1:]
+
+    def get_data(self):
+        gc = self.connect_to_google()
         wks = gc.open('CARTEIRA DE CLIENTES AREA 18  JULHO 18').get_worksheet(0)
         self.data = wks.get_all_records()
-        if self.start_point != None:
-            self.coords = {i + 1: ast.literal_eval(coord['Latitude/Longitude']) for i, coord in enumerate(self.data)}
-            self.coords[0] = self.start_point
-            self.all_nodes = list(self.coords.keys())
+        if self.start_point is not None:
+            self.coordinates = {i + 1: ast.literal_eval(coord['Latitude/Longitude']) for i, coord in enumerate(self.data)}
+            self.coordinates[0] = self.start_point
+            self.all_nodes = list(self.coordinates.keys())
             self.all_nodes.sort()
             self.client_nodes = self.all_nodes[1:]
         else:
-            self.coords = {i: ast.literal_eval(coord['Latitude/Longitude']) for i, coord in enumerate(self.data)}
-            self.all_nodes = list(self.coords.keys())
+            self.coordinates = {i: ast.literal_eval(coord['Latitude/Longitude']) for i, coord in enumerate(self.data)}
+            self.all_nodes = list(self.coordinates.keys())
             self.all_nodes.sort()
             self.client_nodes = self.all_nodes[1:]
-        self.n = len(self.coords)
+        self.n = len(self.coordinates)
         self.distance_set()
         msg_showed = False
         for j in self.all_nodes:
@@ -68,61 +101,66 @@ class TSPModel:
             exit()
 
     def random_sample(self, size, latitude_range=(-3.90, -3.47), longitude_range=(-39.31, -38.18)):
-        self.coords = {
+        self.coordinates = {
             i: (uniform(latitude_range[0], latitude_range[1]), uniform(longitude_range[0], longitude_range[1]))
             for i in range(size)
         }
-        self.n = len(self.coords)
-        self.all_nodes = list(self.coords.keys())
+        self.n = len(self.coordinates)
+        self.all_nodes = list(self.coordinates.keys())
         self.all_nodes.sort()
         self.client_nodes = self.all_nodes[1:]
         self.distance_set()
 
     def distance_set(self):
-        R = 6373.0
+        earth_radius = 6373.0
         self.d = dict()
         for i in self.all_nodes:
             for j in self.all_nodes:
-                lat1 = radians(self.coords[i][0])
-                lon1 = radians(self.coords[i][1])
-                lat2 = radians(self.coords[j][0])
-                lon2 = radians(self.coords[j][1])
+                lat1 = radians(self.coordinates[i][0])
+                lon1 = radians(self.coordinates[i][1])
+                lat2 = radians(self.coordinates[j][0])
+                lon2 = radians(self.coordinates[j][1])
                 dlon = lon2 - lon1
                 dlat = lat2 - lat1
                 a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
                 c = 2 * atan2(sqrt(a), sqrt(1 - a))
-                self.d[i, j] = R * c
+                self.d[i, j] = earth_radius * c
 
-    def plot_coords(self):
-        x = [self.coords[i][0] for i in self.client_nodes]
-        y = [self.coords[i][1] for i in self.client_nodes]
+    def plot_coordinates(self):
+        x = [self.coordinates[i][0] for i in self.client_nodes]
+        y = [self.coordinates[i][1] for i in self.client_nodes]
+        center_x = [center[0] for center in self.c]
+        center_y = [center[1] for center in self.c]
         fig, ax = plt.subplots()
-        ax.plot(self.coords[0][0], self.coords[0][1], 'o')
+        ax.plot(self.coordinates[0][0], self.coordinates[0][1], 'o')
         ax.plot(x, y, 'o')
+        ax.plot(center_x, center_y, 'o')
+        ax.plot()
         plt.show()
 
-    def rotate(self, x, y, cx, cy, ang):
+    @staticmethod
+    def rotate(x, y, cx, cy, ang):
         theta = radians(ang)
         rx = ((x - cx) * cos(theta) + (y - cy) * sin(theta)) + cx
         ry = (-(x - cx) * sin(theta) + (y - cy) * cos(theta)) + cy
         return rx, ry
 
     def linear_partition(self):
-        cx, cy = self.coords[0][0], self.coords[0][1]
+        cx, cy = self.coordinates[0][0], self.coordinates[0][1]
         self.nodes_set = [[0], [0]]
         for ang in arange(0, 180, 0.2):
             x, y = self.rotate(cx, cy * 1.5, cx, cy, ang)
             points = [(cx, cy), (x, y)]
-            x_coords, y_coords = zip(*points)
-            A = vstack([x_coords, ones(len(x_coords))]).T
-            m, c = lstsq(A, y_coords, rcond=None)[0]
+            x_coordinates, y_coordinates = zip(*points)
+            a = vstack([x_coordinates, ones(len(x_coordinates))]).T
+            m, c = lstsq(a, y_coordinates, rcond=None)[0]
             count = 0
             for i in range(1, self.n):
-                if self.coords[i][1] - m * self.coords[i][0] <= c:
+                if self.coordinates[i][1] - m * self.coordinates[i][0] <= c:
                     count += 1
-            if count <= (self.n - 1) // 2 + 1 and count >= (self.n - 1) // 2 - 1:
+            if (self.n - 1) // 2 - 1 <= count <= (self.n - 1) // 2 + 1:
                 for i in range(1, self.n):
-                    if self.coords[i][1] - m * self.coords[i][0] < c:
+                    if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
                         self.nodes_set[0].append(i)
                     else:
                         self.nodes_set[1].append(i)
@@ -130,7 +168,7 @@ class TSPModel:
 
     def linear_partition_four(self):
         self.linear_partition()
-        cx, cy = self.coords[0][0], self.coords[0][1]
+        cx, cy = self.coordinates[0][0], self.coordinates[0][1]
         self.nodes_set_f = [[0], [0], [0], [0]]
         k = 0
         for j in range(2):
@@ -138,18 +176,18 @@ class TSPModel:
             for ang in arange(0, 180, 0.2):
                 x, y = self.rotate(cx, cy * 1.5, cx, cy, ang)
                 points = [(cx, cy), (x, y)]
-                x_coords, y_coords = zip(*points)
-                A = vstack([x_coords, ones(len(x_coords))]).T
-                m, c = lstsq(A, y_coords, rcond=None)[0]
+                x_coordinates, y_coordinates = zip(*points)
+                a = vstack([x_coordinates, ones(len(x_coordinates))]).T
+                m, c = lstsq(a, y_coordinates, rcond=None)[0]
                 count = 0
                 for i in self.nodes_set[j]:
-                    if self.coords[i][1] - m * self.coords[i][0] <= c and i != 0:
+                    if self.coordinates[i][1] - m * self.coordinates[i][0] <= c and i != 0:
                         count += 1
-                if count <= (len(self.nodes_set[j]) - 1) // 2 + 1 and count >= (len(self.nodes_set[j]) - 1) // 2 - 1:
+                if (len(self.nodes_set[j]) - 1) // 2 - 1 <= count <= (len(self.nodes_set[j]) - 1) // 2 + 1:
                     finished = True
                     for i in self.nodes_set[j]:
                         if i != 0:
-                            if self.coords[i][1] - m * self.coords[i][0] < c:
+                            if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
                                 self.nodes_set_f[j + k].append(i)
                             else:
                                 self.nodes_set_f[j + k + 1].append(i)
@@ -161,23 +199,23 @@ class TSPModel:
             print(item)
 
     def linear_partition_three(self):
-        cx, cy = self.coords[0][0], self.coords[0][1]
+        cx, cy = self.coordinates[0][0], self.coordinates[0][1]
         self.nodes_set_t = [[0], [0], [0]]
         temp = []
         for ang in arange(0, 180, 0.2):
             x, y = self.rotate(cx, cy * 1.5, cx, cy, ang)
             points = [(cx, cy), (x, y)]
-            x_coords, y_coords = zip(*points)
-            A = vstack([x_coords, ones(len(x_coords))]).T
-            m, c = lstsq(A, y_coords, rcond=None)[0]
+            x_coordinates, y_coordinates = zip(*points)
+            a = vstack([x_coordinates, ones(len(x_coordinates))]).T
+            m, c = lstsq(a, y_coordinates, rcond=None)[0]
             count = 0
             finished = False
             for i in range(1, self.n):
-                if self.coords[i][1] - m * self.coords[i][0] < c:
+                if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
                     count += 1
-            if count <= (self.n - 1) // 3 + 1 and count >= (self.n - 1) // 3 - 1:
+            if (self.n - 1) // 3 - 1 <= count <= (self.n - 1) // 3 + 1:
                 for i in range(1, self.n):
-                    if self.coords[i][1] - m * self.coords[i][0] < c:
+                    if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
                         self.nodes_set_t[0].append(i)
                     else:
                         temp.append(i)
@@ -187,17 +225,17 @@ class TSPModel:
         for ang in arange(0, 180, 0.2):
             x, y = self.rotate(cx, cy * 1.5, cx, cy, ang)
             points = [(cx, cy), (x, y)]
-            x_coords, y_coords = zip(*points)
-            A = vstack([x_coords, ones(len(x_coords))]).T
-            m, c = lstsq(A, y_coords, rcond=None)[0]
+            x_coordinates, y_coordinates = zip(*points)
+            a = vstack([x_coordinates, ones(len(x_coordinates))]).T
+            m, c = lstsq(a, y_coordinates, rcond=None)[0]
             count = 0
             finished = False
             for i in temp:
-                if self.coords[i][1] - m * self.coords[i][0] < c:
+                if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
                     count += 1
-            if count <= (len(temp)) // 2 + 1 and count >= (len(temp)) // 2 - 1:
+            if (len(temp)) // 2 - 1 <= count <= (len(temp)) // 2 + 1:
                 for i in temp:
-                    if self.coords[i][1] - m * self.coords[i][0] < c:
+                    if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
                         self.nodes_set_t[1].append(i)
                     else:
                         self.nodes_set_t[2].append(i)
@@ -210,6 +248,34 @@ class TSPModel:
         print('Coordenadas particionadas:')
         for item in self.nodes_set_t:
             print(item)
+
+    @staticmethod
+    def distance(x, c):
+        return sqrt((x[0] - c[0]) ** 2 + (x[1] - c[1]) ** 2)
+
+    def k_mean_cluster(self, k=4):
+        coordinates = list(self.coordinates.values())
+        max_size = len(coordinates) // 4 + 1
+        error = float('inf')
+        min_x = min(coord[0] for coord in self.coordinates.values())
+        max_x = max(coord[0] for coord in self.coordinates.values())
+        min_y = min(coord[1] for coord in self.coordinates.values())
+        max_y = max(coord[1] for coord in self.coordinates.values())
+        self.c = [(uniform(min_x, max_x), uniform(min_y, max_y)) for i in range(k)]
+        while error > 0.01:
+            self.nodes_set_c = [[] for i in range(k)]
+            for node, x in enumerate(coordinates[1:]):
+                min_distance = float('inf')
+                c_id = None
+                for i, center in enumerate(self.c):
+                    if self.distance(x, center) < min_distance and len(self.nodes_set_c[i]) <= max_size:
+                        min_distance = self.distance(x, center)
+                        c_id = i
+                self.nodes_set_c[c_id].append(node + 1)
+            new_c = [(mean([coordinates[node][0] for node in nodes]), mean([coordinates[node][1] for node in nodes])) for nodes in self.nodes_set_c]
+            error = sum(self.distance(center, new_center) for center, new_center in zip(self.c, new_c))
+            self.c = list(new_c)
+        print(self.nodes_set_c)
 
     def pre_tsp(self):
         model = ConcreteModel()
@@ -332,12 +398,23 @@ class TSPModel:
         self.x = {(i, j): 1 if model.x[i, j].value == 1.0 else 0 for i in model.all_nodes for j in model.all_nodes}
 
     def solve_partitioned(self, timelimit, partition):
-        if partition == 'four':
+        if partition == 4:
             self.linear_partition_four()
             nodes_set = self.nodes_set_f
-        else:
+        elif partition == 3:
             self.linear_partition_three()
             nodes_set = self.nodes_set_t
+        elif partition == 'cluster':
+            self.k_mean_cluster()
+            nodes_set = self.nodes_set_c
+        elif partition == 2:
+            self.linear_partition()
+            nodes_set = self.nodes_set
+        elif partition == 1:
+            nodes_set = [self.all_nodes]
+        else:
+            print('Modelo de particao --{}-- não existe'.format(partition))
+            exit()
         self.x = {(i, j): 0 for i in self.all_nodes for j in self.all_nodes}
         for nodes in nodes_set:
             print('solving for: ', nodes)
@@ -363,8 +440,7 @@ class TSPModel:
             print('variables created')
             model.obj = Objective(
                 expr=sum(
-                    model.d[nodes[i], nodes[j]] * model.x[i, j, k]
-                    for i in model.all_nodes for j in model.all_nodes for k in model.days),
+                    model.d[nodes[i], nodes[j]] * model.x[i, j, k] for i in model.all_nodes for j in model.all_nodes for k in model.days),
                 sense=minimize
             )
             model.constset4 = ConstraintList()
@@ -436,10 +512,10 @@ class TSPModel:
             self.output['total_distance'] += sum(self.d[i, j] * model.x[i, j, k].value
                                                  for i in model.all_nodes
                                                  for j in model.all_nodes
-                                                 for k in model.days if model.x[i, j, k].value != None)
+                                                 for k in model.days if model.x[i, j, k].value is not None)
             for i in model.all_nodes:
                 for j in model.all_nodes:
-                    if sum(model.x[i, j, k].value for k in model.days if model.x[i, j, k].value != None) == 1.0:
+                    if sum(model.x[i, j, k].value for k in model.days if model.x[i, j, k].value is not None) == 1.0:
                         self.x[nodes[i], nodes[j]] = 1
                     else:
                         self.x[nodes[i], nodes[j]] = 0
@@ -463,12 +539,10 @@ class TSPModel:
                         if r[1] == 0:
                             finish = True
 
-    def generate_results(self):
+    def generate_results(self, i):
         self.get_results()
         dia = 1
         for arcs in self.arcs_sequence:
-            time_span = 0
-            distance = 0
             self.output['sequences'].append({'day': dia, 'sequence': [0], 'time(h)': 0, 'distance(km)': 0})
             for r in arcs:
                 if r[1] != 0:
@@ -478,13 +552,13 @@ class TSPModel:
                 self.output['sequences'][-1]['sequence'].append(r[1])
                 self.output['sequences'][-1]['distance(km)'] += self.d[r[0], r[1]]
             dia += 1
-        self.output['total_time_in_hours'] = sum(sequence['time(h)'] for sequence in self.output['sequences'])
+        self.output['total_time_in_hours'] = sum(seq['time(h)'] for seq in self.output['sequences'])
         self.output['total_number_of_days'] = dia - 1
         self.output['average_working_time'] = self.output['total_time_in_hours'] / dia - 1
-        file = open('backup_output.txt', 'w')
+        file = open('results/vendedor_{}_output.txt'.format(self.salesman[i]['id']), 'w')
         file.write(str(self.output))
-        print('Objeto de resposta do modelo:')
-        print(self.output)
+        # print('Objeto de resposta do modelo:')
+        # print(self.output)
 
     def show_results(self):
         dia = 1
@@ -503,38 +577,32 @@ class TSPModel:
             print('dia {}: {} | tempo (h): {} | dist (km): {}'.format(dia, resp, time_span, distance))
             dia += 1
 
-    def plot_solution(self):
+    def plot_solution(self, i):
         from itertools import cycle
         cycol = cycle('bgrcmk')
-        x = [self.coords[i][0] for i in self.client_nodes]
-        y = [self.coords[i][1] for i in self.client_nodes]
+        x = [self.coordinates[i][0] for i in self.client_nodes]
+        y = [self.coordinates[i][1] for i in self.client_nodes]
         fig, ax = plt.subplots()
-        ax.plot(self.coords[0][0], self.coords[0][1], 'o')
+        ax.plot(self.coordinates[0][0], self.coordinates[0][1], 'o')
         ax.plot(x, y, 'o')
-        x = [self.coords[i][0] for i in self.all_nodes]
-        y = [self.coords[i][1] for i in self.all_nodes]
+        x = [self.coordinates[i][0] for i in self.all_nodes]
+        y = [self.coordinates[i][1] for i in self.all_nodes]
         for arcs in self.arcs_sequence:
             color = next(cycol)
             for arc in arcs:
-                self.connectpoints(x, y, arc[0], arc[1], color)
-        plt.show()
+                self.connect_points(x, y, arc[0], arc[1], color)
+        plt.savefig('results/vendedor_{}_output.png'.format(self.salesman[i]['id']))
 
-    def save_on_google(self):
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        try:
-            credentials = ServiceAccountCredentials.from_json_keyfile_name("Legislator-b96aaa67134d.json", scope)
-            gc = gspread.authorize(credentials)
-        except:
-            print('Erro na conexcao')
-            exit()
-        wks = gc.open(self.spreadsheet_name).get_worksheet(1)
+    def save_on_google(self, i):
+        gc = self.connect_to_google()
+        wks = gc.open('resultados - rotas').worksheet(self.salesman[i]['id'])
         i = 2
-        columns = ['id', 'fantasia', 'NOMECLIENTE', 'ENDERECO', 'dia', 'ordem']
+        columns = ['ENTIDADEID', 'DESCRICAO', 'ENDEREÇO', 'dia', 'ordem']
         for day in self.output['sequences']:
             j = 1
             for node in day['sequence']:
                 if node != 0:
-                    cell_list = wks.range(i, 1, i, 6)
+                    cell_list = wks.range(i, 1, i, 5)
                     exp_index = next((index for (index, d) in enumerate(self.data) if d["id"] == node), None)
                     for cell, column in zip(cell_list, columns):
                         if column != 'dia' and column != 'ordem':
@@ -549,13 +617,7 @@ class TSPModel:
         self.save_abstract()
 
     def save_abstract(self):
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        try:
-            credentials = ServiceAccountCredentials.from_json_keyfile_name("Legislator-b96aaa67134d.json", scope)
-            gc = gspread.authorize(credentials)
-        except:
-            print('Erro na conexcao')
-            exit()
+        gc = self.connect_to_google()
         wks = gc.open(self.spreadsheet_name).get_worksheet(2)
         wks.update_cell(2, 2, self.output['total_number_of_days'])
         wks.update_cell(3, 2, self.output['total_distance'])
@@ -569,7 +631,8 @@ class TSPModel:
         exit()
         self.save_on_google()
 
-    def connectpoints(self, x, y, p1, p2, color):
+    @staticmethod
+    def connect_points(x, y, p1, p2, color):
         x1, x2 = x[p1], x[p2]
         y1, y2 = y[p1], y[p2]
         plt.plot([x1, x2], [y1, y2], c=color)
@@ -591,16 +654,41 @@ input_data = {
         11: (-3.843487789860545, -38.74566546750679),
         12: (-3.8627966544258188, -38.587290555785295),
         13: (-3.553873034380957, -38.819609163825476)},
-    'tempo_atendimento': 0.4,
+    'tempo_atendimento': 0.3,
     'tempo_km': 1 / 40,
     'horas_dia': 8
 }
 
 if __name__ == '__main__':
     instance = TSPModel(input_data)
-    instance.start_point = (-3.7897703, -38.6155416)
-    instance.spreadsheet_name = 'CARTEIRA DE CLIENTES AREA 18  JULHO 18'
-    instance.get_data()
-    instance.solve_partitioned(timelimit=600, partition='four')
-    instance.generate_results()
-    instance.plot_solution()
+    # instance.start_point = (-3.7897703, -38.6155416)
+    # instance.spreadsheet_name = 'CARTEIRA DE CLIENTES AREA 18  JULHO 18'
+    # instance.get_data()
+    # instance.solve_partitioned(timelimit=60, partition='cluster')
+    # instance.generate_results()
+    # instance.save_on_google()
+    # instance.plot_solution()
+    t = 600
+    for i in range(-1, -21, -1):
+        instance.get_salesman()
+        instance.get_coordinates(i)
+        instance.distance_set()
+        print(instance.salesman[i])
+        print(instance.coordinates)
+        n = len(instance.coordinates) / 26
+        if n <= 1:
+            instance.solve_partitioned(timelimit=t, partition=1)
+        elif 1 < n <= 2:
+            instance.solve_partitioned(timelimit=t, partition=2)
+        elif 2 < n <= 3:
+            instance.solve_partitioned(timelimit=t, partition=2)
+        else:
+            instance.solve_partitioned(timelimit=t, partition=4)
+        instance.generate_results(i)
+        instance.plot_solution(i)
+
+
+    # instance.solve_partitioned(timelimit=600, partition=1)
+    # instance.generate_results()
+    # instance.k_mean_cluster(4)
+    # instance.plot_coordinates()
