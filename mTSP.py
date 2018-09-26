@@ -5,7 +5,6 @@ from random import uniform
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import ast
-import pprint
 from numpy import ones, vstack, arange
 from numpy.linalg import lstsq
 
