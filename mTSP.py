@@ -33,7 +33,8 @@ class TSPModel:
             'total_time_in_hours': 0,
             'average_working_time': 0,
             'total_number_of_days': 0,
-            'sequences': []
+            'sequences': [],
+            'clients': []
         }
         self.salesman = None
         self.spreadsheet_name = None
@@ -58,7 +59,9 @@ class TSPModel:
         gc = self.connect_to_google()
         wks = gc.open('vendedores ativos').get_worksheet(0)
         data = wks.get_all_records()
-        self.salesman = [{'nome': d['VENDEDOR'], 'id': d['COD_VENDEDOR'], 'origem': ast.literal_eval(d['Coordenada'])} for d in data]
+        self.salesman = [{'nome': d['VENDEDOR'],
+                          'id': d['COD_VENDEDOR'],
+                          'origem': ast.literal_eval(d['Coordenada'])} for d in data]
 
     def get_coordinates(self, i):
         gc = self.connect_to_google()
@@ -68,6 +71,11 @@ class TSPModel:
             i + 1: (float(coord['Latitude']), float(coord['Longitude']))
             for i, coord in enumerate(self.data)
         }
+        self.output['clients'] = [{'id': i + 1, 'entidade_id': d['ENTIDADEID'], 'description': d['DESCRICAO']}
+                                  for i, d in enumerate(self.data)]
+        self.output['clients'].append({'id': 0,
+                                       'vendedor_id': self.salesman[i]['id'],
+                                       'description': self.salesman[i]['nome']})
         self.coordinates[0] = self.salesman[i]['origem']
         self.all_nodes = list(self.coordinates.keys())
         self.all_nodes.sort()
@@ -660,7 +668,6 @@ input_data = {
 }
 
 if __name__ == '__main__':
-    instance = TSPModel(input_data)
     # instance.start_point = (-3.7897703, -38.6155416)
     # instance.spreadsheet_name = 'CARTEIRA DE CLIENTES AREA 18  JULHO 18'
     # instance.get_data()
@@ -668,9 +675,13 @@ if __name__ == '__main__':
     # instance.generate_results()
     # instance.save_on_google()
     # instance.plot_solution()
+    instance1 = TSPModel(input_data)
+    instance1.get_salesman()
     t = 600
-    for i in range(-1, -21, -1):
-        instance.get_salesman()
+    # len(instance1.salesman)
+    for i in range(instance1.salesman):
+        instance = TSPModel(input_data)
+        instance.salesman = instance1.salesman
         instance.get_coordinates(i)
         instance.distance_set()
         print(instance.salesman[i])
@@ -686,8 +697,6 @@ if __name__ == '__main__':
             instance.solve_partitioned(timelimit=t, partition=4)
         instance.generate_results(i)
         instance.plot_solution(i)
-
-
     # instance.solve_partitioned(timelimit=600, partition=1)
     # instance.generate_results()
     # instance.k_mean_cluster(4)
