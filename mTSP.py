@@ -681,26 +681,24 @@ if __name__ == '__main__':
     t = 600
     # len(instance1.salesman)
     for i in range(len(instance1.salesman)):
-        try:
-            instance = TSPModel(input_data)
-            instance.salesman = instance1.salesman
-            instance.get_coordinates(i)
-            instance.distance_set()
-            print(instance.salesman[i])
-            print(instance.coordinates)
-            n = len(instance.coordinates) / 26
-            if n <= 1:
-                instance.solve_partitioned(timelimit=t, partition=1)
-            elif 1 < n <= 2:
-                instance.solve_partitioned(timelimit=t, partition='cluster', k=2)
-            elif 2 < n <= 3:
-                instance.solve_partitioned(timelimit=t, partition='cluster', k=3)
-            else:
-                instance.solve_partitioned(timelimit=t, partition='cluster', k=4)
-            instance.generate_results(i)
-            instance.plot_solution(i)
-        except:
-            pass
+        instance = TSPModel(input_data)
+        instance.salesman = instance1.salesman
+        instance.get_coordinates(i)
+        instance.distance_set()
+        print(instance.salesman[i])
+        print(instance.coordinates)
+        n = len(instance.coordinates) / 26
+        if n <= 1:
+            instance.solve_partitioned(timelimit=t, partition=1)
+        elif 1 < n <= 2:
+            instance.solve_partitioned(timelimit=t, partition='cluster', k=2)
+        elif 2 < n <= 3:
+            instance.solve_partitioned(timelimit=t, partition='cluster', k=3)
+        else:
+            instance.solve_partitioned(timelimit=t, partition='cluster', k=4)
+        instance.generate_results(i)
+        instance.plot_solution(i)
+
     # instance.solve_partitioned(timelimit=600, partition=1)
     # instance.generate_results()
     # instance.k_mean_cluster(4)
