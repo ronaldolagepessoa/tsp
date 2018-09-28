@@ -34,7 +34,8 @@ class TSPModel:
             'average_working_time': 0,
             'total_number_of_days': 0,
             'sequences': [],
-            'clients': []
+            'clients': [],
+            'salesman': None
         }
         self.salesman = None
         self.spreadsheet_name = None
@@ -73,9 +74,9 @@ class TSPModel:
         }
         self.output['clients'] = [{'id': i + 1, 'entidade_id': d['ENTIDADEID'], 'description': d['DESCRICAO']}
                                   for i, d in enumerate(self.data)]
-        self.output['clients'].append({'id': 0,
-                                       'vendedor_id': self.salesman[i]['id'],
-                                       'description': self.salesman[i]['nome']})
+        self.output['salesman'] = {'id': 0,
+                                   'vendedor_id': self.salesman[i]['id'],
+                                   'description': self.salesman[i]['nome']}
         self.coordinates[0] = self.salesman[i]['origem']
         self.all_nodes = list(self.coordinates.keys())
         self.all_nodes.sort()
@@ -261,7 +262,7 @@ class TSPModel:
     def distance(x, c):
         return sqrt((x[0] - c[0]) ** 2 + (x[1] - c[1]) ** 2)
 
-    def k_mean_cluster(self, k=4):
+    def k_mean_cluster(self, k):
         coordinates = list(self.coordinates.values())
         max_size = len(coordinates) // 4 + 1
         error = float('inf')
@@ -405,7 +406,7 @@ class TSPModel:
         solver.solve(model, tee=True)
         self.x = {(i, j): 1 if model.x[i, j].value == 1.0 else 0 for i in model.all_nodes for j in model.all_nodes}
 
-    def solve_partitioned(self, timelimit, partition):
+    def solve_partitioned(self, timelimit, partition, k=4):
         if partition == 4:
             self.linear_partition_four()
             nodes_set = self.nodes_set_f
@@ -413,7 +414,7 @@ class TSPModel:
             self.linear_partition_three()
             nodes_set = self.nodes_set_t
         elif partition == 'cluster':
-            self.k_mean_cluster()
+            self.k_mean_cluster(k)
             nodes_set = self.nodes_set_c
         elif partition == 2:
             self.linear_partition()
@@ -679,8 +680,8 @@ if __name__ == '__main__':
     instance1.get_salesman()
     t = 600
     # len(instance1.salesman)
-    for i in range(18, instance1.salesman):
-        try: 
+    for i in range(len(instance1.salesman)):
+        try:
             instance = TSPModel(input_data)
             instance.salesman = instance1.salesman
             instance.get_coordinates(i)
@@ -691,11 +692,11 @@ if __name__ == '__main__':
             if n <= 1:
                 instance.solve_partitioned(timelimit=t, partition=1)
             elif 1 < n <= 2:
-                instance.solve_partitioned(timelimit=t, partition=2)
+                instance.solve_partitioned(timelimit=t, partition='cluster', k=2)
             elif 2 < n <= 3:
-                instance.solve_partitioned(timelimit=t, partition=2)
+                instance.solve_partitioned(timelimit=t, partition='cluster', k=3)
             else:
-                instance.solve_partitioned(timelimit=t, partition=4)
+                instance.solve_partitioned(timelimit=t, partition='cluster', k=4)
             instance.generate_results(i)
             instance.plot_solution(i)
         except:
