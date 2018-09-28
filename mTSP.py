@@ -264,7 +264,8 @@ class TSPModel:
 
     def k_mean_cluster(self, k):
         coordinates = list(self.coordinates.values())
-        max_size = len(coordinates) // 4 + 1
+        weight = len(coordinates) // 5
+        max_size = len(coordinates) // k + 1
         error = float('inf')
         min_x = min(coord[0] for coord in self.coordinates.values())
         max_x = max(coord[0] for coord in self.coordinates.values())
@@ -272,7 +273,7 @@ class TSPModel:
         max_y = max(coord[1] for coord in self.coordinates.values())
         self.c = [(uniform(min_x, max_x), uniform(min_y, max_y)) for i in range(k)]
         while error > 0.01:
-            self.nodes_set_c = [[] for i in range(k)]
+            self.nodes_set_c = [[0] for i in range(k)]
             for node, x in enumerate(coordinates[1:]):
                 min_distance = float('inf')
                 c_id = None
@@ -281,7 +282,8 @@ class TSPModel:
                         min_distance = self.distance(x, center)
                         c_id = i
                 self.nodes_set_c[c_id].append(node + 1)
-            new_c = [(mean([coordinates[node][0] for node in nodes]), mean([coordinates[node][1] for node in nodes])) for nodes in self.nodes_set_c]
+            new_c = [(mean([coordinates[node][0] for node in nodes] + [coordinates[0][0] * weight]),
+                      mean([coordinates[node][1] for node in nodes] + [coordinates[0][1] * weight])) for nodes in self.nodes_set_c]
             error = sum(self.distance(center, new_center) for center, new_center in zip(self.c, new_c))
             self.c = list(new_c)
         print(self.nodes_set_c)
@@ -678,27 +680,29 @@ if __name__ == '__main__':
     # instance.plot_solution()
     instance1 = TSPModel(input_data)
     instance1.get_salesman()
-    t = 600
+    t = 1000
     # len(instance1.salesman)
     for i in range(len(instance1.salesman)):
-        instance = TSPModel(input_data)
-        instance.salesman = instance1.salesman
-        instance.get_coordinates(i)
-        instance.distance_set()
-        print(instance.salesman[i])
-        print(instance.coordinates)
-        n = len(instance.coordinates) / 26
-        if n <= 1:
-            instance.solve_partitioned(timelimit=t, partition=1)
-        elif 1 < n <= 2:
-            instance.solve_partitioned(timelimit=t, partition='cluster', k=2)
-        elif 2 < n <= 3:
-            instance.solve_partitioned(timelimit=t, partition='cluster', k=3)
-        else:
-            instance.solve_partitioned(timelimit=t, partition='cluster', k=4)
-        instance.generate_results(i)
-        instance.plot_solution(i)
-
+        try:
+            instance = TSPModel(input_data)
+            instance.salesman = instance1.salesman
+            instance.get_coordinates(i)
+            instance.distance_set()
+            print(instance.salesman[i])
+            print(instance.coordinates)
+            n = len(instance.coordinates) / 26
+            if n <= 1:
+                instance.solve_partitioned(timelimit=t, partition=1)
+            elif 1 < n <= 2:
+                instance.solve_partitioned(timelimit=t, partition='cluster', k=2)
+            elif 2 < n <= 3:
+                instance.solve_partitioned(timelimit=t, partition='cluster', k=3)
+            else:
+                instance.solve_partitioned(timelimit=t, partition='cluster', k=4)
+            instance.generate_results(i)
+            instance.plot_solution(i)
+        except:
+            pass
     # instance.solve_partitioned(timelimit=600, partition=1)
     # instance.generate_results()
     # instance.k_mean_cluster(4)
