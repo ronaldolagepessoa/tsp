@@ -683,7 +683,7 @@ if __name__ == '__main__':
     # instance.plot_solution()
     instance1 = TSPModel(input_data)
     instance1.get_salesman()
-    t = 5
+    t = 1000
     # len(instance1.salesman)
     for i in range(len(instance1.salesman)):
         try:
@@ -695,22 +695,15 @@ if __name__ == '__main__':
             print(instance.coordinates)
             n = len(instance.coordinates) / 26
             if n <= 1:
-                pass
-                # instance.solve_partitioned(timelimit=t, partition=1)
+                instance.solve_partitioned(timelimit=t, partition=1)
             elif 1 < n <= 2:
-                instance.k_mean_cluster(2)
-                pass
-                # instance.solve_partitioned(timelimit=t, partition='cluster', k=2)
+                instance.solve_partitioned(timelimit=t, partition='cluster', k=2)
             elif 2 < n <= 3:
-                instance.k_mean_cluster(3)
-                pass
-                # instance.solve_partitioned(timelimit=t, partition='cluster', k=3)
+                instance.solve_partitioned(timelimit=t, partition='cluster', k=3)
             else:
-                instance.k_mean_cluster(4)
-                pass
-                # instance.solve_partitioned(timelimit=t, partition='cluster', k=4)
-            # instance.generate_results(i)
-            # instance.plot_solution(i)
+                instance.solve_partitioned(timelimit=t, partition='cluster', k=4)
+            instance.generate_results(i)
+            instance.plot_solution(i)
         except:
             pass
     # instance.solve_partitioned(timelimit=600, partition=1)
