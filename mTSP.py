@@ -109,6 +109,19 @@ class TSPModel:
         if msg_showed:
             exit()
 
+    def check_data(self):
+        msg_showed = False
+        for j in self.all_nodes:
+            if self.d[0, j] * self.tempo_km * 2 + self.tempo_atendimento > self.horas_dia:
+                if not msg_showed:
+                    print('As coordenadas abaixo estão muito distantes da origem:')
+                msg_showed = True
+                print('t[{}, {}] = {}'.format(0, j, self.d[0, j] * self.tempo_km + self.tempo_atendimento))
+        if msg_showed:
+            return True
+        else:
+            return False
+
     def random_sample(self, size, latitude_range=(-3.90, -3.47), longitude_range=(-39.31, -38.18)):
         self.coordinates = {
             i: (uniform(latitude_range[0], latitude_range[1]), uniform(longitude_range[0], longitude_range[1]))
@@ -683,27 +696,28 @@ if __name__ == '__main__':
     # instance.plot_solution()
     instance1 = TSPModel(input_data)
     instance1.get_salesman()
-    t = 1000
+    t = 600
     # len(instance1.salesman)
-    for i in range(len(instance1.salesman)):
+    for i in range(14, len(instance1.salesman)):
         try:
             instance = TSPModel(input_data)
             instance.salesman = instance1.salesman
             instance.get_coordinates(i)
             instance.distance_set()
-            print(instance.salesman[i])
-            print(instance.coordinates)
-            n = len(instance.coordinates) / 26
-            if n <= 1:
-                instance.solve_partitioned(timelimit=t, partition=1)
-            elif 1 < n <= 2:
-                instance.solve_partitioned(timelimit=t, partition='cluster', k=2)
-            elif 2 < n <= 3:
-                instance.solve_partitioned(timelimit=t, partition='cluster', k=3)
-            else:
-                instance.solve_partitioned(timelimit=t, partition='cluster', k=4)
-            instance.generate_results(i)
-            instance.plot_solution(i)
+            to_distant = instance.check_data()
+            print(instance.salesman[i]['id'])
+            if not to_distant:
+                n = len(instance.coordinates) / 26
+                if n <= 1:
+                    instance.solve_partitioned(timelimit=t, partition=1)
+                elif 1 < n <= 2:
+                    instance.solve_partitioned(timelimit=t, partition='cluster', k=2)
+                elif 2 < n <= 3:
+                    instance.solve_partitioned(timelimit=t, partition='cluster', k=3)
+                else:
+                    instance.solve_partitioned(timelimit=t, partition='cluster', k=4)
+                instance.generate_results(i)
+                instance.plot_solution(i)
         except:
             pass
     # instance.solve_partitioned(timelimit=600, partition=1)
