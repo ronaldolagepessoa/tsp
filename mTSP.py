@@ -35,9 +35,10 @@ class TSPModel:
             'total_number_of_days': 0,
             'sequences': [],
             'clients': [],
-            'salesman': None
+            'salesman': None,
+            'distant_clients': []
         }
-        self.salesman = None
+        self.salesmen = None
         self.spreadsheet_name = None
         self.data = None
         self.nodes_set_f = None
@@ -56,71 +57,81 @@ class TSPModel:
             print('Erro na conexcao')
             exit()
 
-    def get_salesman(self):
+    def get_salesmen(self):
         gc = self.connect_to_google()
         wks = gc.open('vendedores ativos').get_worksheet(0)
         data = wks.get_all_records()
-        self.salesman = [{'nome': d['VENDEDOR'],
+        self.salesmen = [{'nome': d['VENDEDOR'],
                           'id': d['COD_VENDEDOR'],
-                          'origem': ast.literal_eval(d['Coordenada'])} for d in data]
+                          'origem': (float(d['Latitude']), float(d['Longitude']))} for d in data]
 
-    def get_coordinates(self, i):
+    def get_coordinates(self, salesman_list_position):
         gc = self.connect_to_google()
-        wks = gc.open('lista de clientes').worksheet(str(self.salesman[i]['id']))
+        wks = gc.open('lista de clientes atualizada').worksheet('sheet1')
         self.data = wks.get_all_records()
-        self.coordinates = {
-            i + 1: (float(coord['Latitude']), float(coord['Longitude']))
-            for i, coord in enumerate(self.data)
-        }
-        self.output['clients'] = [{'id': i + 1, 'entidade_id': d['ENTIDADEID'], 'description': d['DESCRICAO']}
-                                  for i, d in enumerate(self.data)]
+        self.coordinates = {}
+        self.coordinates[0] = self.salesmen[salesman_list_position]['origem']
+        i = 1
+        for line in self.data:
+            if line['VENDEDOR'] == self.salesmen[salesman_list_position]['id']:
+                self.coordinates[i] = (float(line['Latitude']), float(line['Longitude']))
+                self.output['clients'].append(
+                    {'id': i, 'entidade_id': line['CLIENTEID'], 'description': line['NOMECLIENTE']})
+                i += 1
         self.output['salesman'] = {'id': 0,
-                                   'vendedor_id': self.salesman[i]['id'],
-                                   'description': self.salesman[i]['nome']}
-        self.coordinates[0] = self.salesman[i]['origem']
+                                   'vendedor_id': self.salesmen[salesman_list_position]['id'],
+                                   'description': self.salesmen[salesman_list_position]['nome']}
+
         self.all_nodes = list(self.coordinates.keys())
         self.all_nodes.sort()
         self.client_nodes = self.all_nodes[1:]
 
-    def get_data(self):
-        gc = self.connect_to_google()
-        wks = gc.open('CARTEIRA DE CLIENTES AREA 18  JULHO 18').get_worksheet(0)
-        self.data = wks.get_all_records()
-        if self.start_point is not None:
-            self.coordinates = {i + 1: ast.literal_eval(coord['Latitude/Longitude']) for i, coord in enumerate(self.data)}
-            self.coordinates[0] = self.start_point
-            self.all_nodes = list(self.coordinates.keys())
-            self.all_nodes.sort()
-            self.client_nodes = self.all_nodes[1:]
-        else:
-            self.coordinates = {i: ast.literal_eval(coord['Latitude/Longitude']) for i, coord in enumerate(self.data)}
-            self.all_nodes = list(self.coordinates.keys())
-            self.all_nodes.sort()
-            self.client_nodes = self.all_nodes[1:]
-        self.n = len(self.coordinates)
-        self.distance_set()
-        msg_showed = False
-        for j in self.all_nodes:
-            if self.d[0, j] * self.tempo_km * 2 + self.tempo_atendimento > self.horas_dia:
-                if not msg_showed:
-                    print('As coordenadas abaixo estão muito distantes da origem:')
-                msg_showed = True
-                print('t[{}, {}] = {}'.format(0, j, self.d[0, j] * self.tempo_km + self.tempo_atendimento))
-        if msg_showed:
-            exit()
+    def check_all(self):
+        for salesman_list_position in range(len(self.salesmen)):
+            # print('-' * 50)
+            self.get_coordinates(salesman_list_position)
+            self.distance_set()
+            self.check_data(salesman_list_position, complete=False, verbose=False)
 
-    def check_data(self):
+    def check_data(self, salesman_list_position, complete=True, verbose=True):
         msg_showed = False
-        for j in self.all_nodes:
+        out_coordinates_ids = []
+        for j in self.client_nodes:
             if self.d[0, j] * self.tempo_km * 2 + self.tempo_atendimento > self.horas_dia:
                 if not msg_showed:
+                    print('Vendedor {}:'.format(self.output['salesman']['vendedor_id']))
                     print('As coordenadas abaixo estão muito distantes da origem:')
                 msg_showed = True
-                print('t[{}, {}] = {}'.format(0, j, self.d[0, j] * self.tempo_km + self.tempo_atendimento))
-        if msg_showed:
-            return True
-        else:
-            return False
+                print('-- cliente {:>2} - {:>2} - {:>2} horas da origem'.format(
+                    self.output['clients'][j - 1]['entidade_id'],
+                    self.output['clients'][j - 1]['description'],
+                    round(self.d[0, j] * self.tempo_km + self.tempo_atendimento, 2)))
+                out_coordinates_ids.append(j)
+        if verbose:
+            if msg_showed and complete:
+                print('Coordenadas removidas => ', out_coordinates_ids)
+                self.coordinates = {}
+                self.coordinates[0] = self.salesmen[salesman_list_position]['origem']
+                i = 1
+                for line in self.data:
+                    if line['VENDEDOR'] == self.salesmen[salesman_list_position]['id']:
+                        if i not in out_coordinates_ids:
+                            self.coordinates[i] = (float(line['Latitude']), float(line['Longitude']))
+                            self.output['clients'].append(
+                                {'id': i, 'entidade_id': line['CLIENTEID'], 'description': line['NOMECLIENTE']})
+                        else:
+                            self.output['distant_clients'].append(
+                                {'id': i, 'entidade_id': line['CLIENTEID'], 'description': line['NOMECLIENTE']})
+                        i += 1
+                self.all_nodes = list(self.coordinates.keys())
+                self.all_nodes.sort()
+                self.client_nodes = self.all_nodes[1:]
+            elif not msg_showed:
+                print('Vendedor {}:'.format(self.output['salesman']['vendedor_id']))
+                print('Sem coordenadas distantes!')
+                return False
+            if msg_showed:
+                return True
 
     def random_sample(self, size, latitude_range=(-3.90, -3.47), longitude_range=(-39.31, -38.18)):
         self.coordinates = {
@@ -161,124 +172,13 @@ class TSPModel:
         plt.show()
 
     @staticmethod
-    def rotate(x, y, cx, cy, ang):
-        theta = radians(ang)
-        rx = ((x - cx) * cos(theta) + (y - cy) * sin(theta)) + cx
-        ry = (-(x - cx) * sin(theta) + (y - cy) * cos(theta)) + cy
-        return rx, ry
-
-    def linear_partition(self):
-        cx, cy = self.coordinates[0][0], self.coordinates[0][1]
-        self.nodes_set = [[0], [0]]
-        for ang in arange(0, 180, 0.2):
-            x, y = self.rotate(cx, cy * 1.5, cx, cy, ang)
-            points = [(cx, cy), (x, y)]
-            x_coordinates, y_coordinates = zip(*points)
-            a = vstack([x_coordinates, ones(len(x_coordinates))]).T
-            m, c = lstsq(a, y_coordinates, rcond=None)[0]
-            count = 0
-            for i in range(1, self.n):
-                if self.coordinates[i][1] - m * self.coordinates[i][0] <= c:
-                    count += 1
-            if (self.n - 1) // 2 - 1 <= count <= (self.n - 1) // 2 + 1:
-                for i in range(1, self.n):
-                    if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
-                        self.nodes_set[0].append(i)
-                    else:
-                        self.nodes_set[1].append(i)
-                return self.nodes_set
-
-    def linear_partition_four(self):
-        self.linear_partition()
-        cx, cy = self.coordinates[0][0], self.coordinates[0][1]
-        self.nodes_set_f = [[0], [0], [0], [0]]
-        k = 0
-        for j in range(2):
-            finished = False
-            for ang in arange(0, 180, 0.2):
-                x, y = self.rotate(cx, cy * 1.5, cx, cy, ang)
-                points = [(cx, cy), (x, y)]
-                x_coordinates, y_coordinates = zip(*points)
-                a = vstack([x_coordinates, ones(len(x_coordinates))]).T
-                m, c = lstsq(a, y_coordinates, rcond=None)[0]
-                count = 0
-                for i in self.nodes_set[j]:
-                    if self.coordinates[i][1] - m * self.coordinates[i][0] <= c and i != 0:
-                        count += 1
-                if (len(self.nodes_set[j]) - 1) // 2 - 1 <= count <= (len(self.nodes_set[j]) - 1) // 2 + 1:
-                    finished = True
-                    for i in self.nodes_set[j]:
-                        if i != 0:
-                            if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
-                                self.nodes_set_f[j + k].append(i)
-                            else:
-                                self.nodes_set_f[j + k + 1].append(i)
-                if finished:
-                    break
-            k += 1
-        print('Coordenadas particionadas:')
-        for item in self.nodes_set_f:
-            print(item)
-
-    def linear_partition_three(self):
-        cx, cy = self.coordinates[0][0], self.coordinates[0][1]
-        self.nodes_set_t = [[0], [0], [0]]
-        temp = []
-        for ang in arange(0, 180, 0.2):
-            x, y = self.rotate(cx, cy * 1.5, cx, cy, ang)
-            points = [(cx, cy), (x, y)]
-            x_coordinates, y_coordinates = zip(*points)
-            a = vstack([x_coordinates, ones(len(x_coordinates))]).T
-            m, c = lstsq(a, y_coordinates, rcond=None)[0]
-            count = 0
-            finished = False
-            for i in range(1, self.n):
-                if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
-                    count += 1
-            if (self.n - 1) // 3 - 1 <= count <= (self.n - 1) // 3 + 1:
-                for i in range(1, self.n):
-                    if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
-                        self.nodes_set_t[0].append(i)
-                    else:
-                        temp.append(i)
-                finished = True
-            if finished:
-                break
-        for ang in arange(0, 180, 0.2):
-            x, y = self.rotate(cx, cy * 1.5, cx, cy, ang)
-            points = [(cx, cy), (x, y)]
-            x_coordinates, y_coordinates = zip(*points)
-            a = vstack([x_coordinates, ones(len(x_coordinates))]).T
-            m, c = lstsq(a, y_coordinates, rcond=None)[0]
-            count = 0
-            finished = False
-            for i in temp:
-                if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
-                    count += 1
-            if (len(temp)) // 2 - 1 <= count <= (len(temp)) // 2 + 1:
-                for i in temp:
-                    if self.coordinates[i][1] - m * self.coordinates[i][0] < c:
-                        self.nodes_set_t[1].append(i)
-                    else:
-                        self.nodes_set_t[2].append(i)
-                finished = True
-            if finished:
-                break
-        if not finished:
-            print('no nodes generated')
-            exit()
-        print('Coordenadas particionadas:')
-        for item in self.nodes_set_t:
-            print(item)
-
-    @staticmethod
     def distance(x, c):
         return sqrt((x[0] - c[0]) ** 2 + (x[1] - c[1]) ** 2)
 
     def k_mean_cluster(self, k):
-        coordinates = list(self.coordinates.values())
-        weight = len(coordinates) // 5
-        max_size = len(coordinates) // k + 1
+        # coordinates = list(self.coordinates.values())
+        weight = len(self.coordinates) // 5
+        max_size = len(self.coordinates) // k + 1
         error = float('inf')
         min_x = min(coord[0] for coord in self.coordinates.values())
         max_x = max(coord[0] for coord in self.coordinates.values())
@@ -287,156 +187,96 @@ class TSPModel:
         self.c = [(uniform(min_x, max_x), uniform(min_y, max_y)) for i in range(k)]
         for j in range(100):
             self.nodes_set_c = [[0] for i in range(k)]
-            for node, x in enumerate(coordinates[1:]):
-                min_distance = float('inf')
-                c_id = None
-                for i, center in enumerate(self.c):
-                    if len(self.nodes_set_c[i]) <= max_size:
-                        if self.distance(x, center) < min_distance:
-                            min_distance = self.distance(x, center)
-                            c_id = i
-                self.nodes_set_c[c_id].append(node + 1)
-            new_c = [(mean([coordinates[node][0] for node in nodes] + [coordinates[0][0] * weight]),
-                      mean([coordinates[node][1] for node in nodes] + [coordinates[0][1] * weight])) for nodes in self.nodes_set_c]
+            for node, x in zip(self.coordinates.keys(), self.coordinates.values()):
+                if node != 0:
+                    min_distance = float('inf')
+                    c_id = None
+                    for i, center in enumerate(self.c):
+                        if len(self.nodes_set_c[i]) <= max_size:
+                            if self.distance(x, center) < min_distance:
+                                min_distance = self.distance(x, center)
+                                c_id = i
+                    self.nodes_set_c[c_id].append(node)
+            new_c = [(mean([self.coordinates[node][0] for node in nodes] + [self.coordinates[0][0]]),
+                      mean([self.coordinates[node][1] for node in nodes] + [self.coordinates[0][1]])) for nodes in self.nodes_set_c]
+            # print(new_c)
             error = sum(self.distance(center, new_center) for center, new_center in zip(self.c, new_c))
             self.c = list(new_c)
             if error < 0.01:
                 break
+        print('cluster set:----n={}'.format(len(self.nodes_set_c)))
         print(self.nodes_set_c)
 
-    def pre_tsp(self):
-        model = ConcreteModel()
-        # parâmetros
-        model.d = self.d
-        model.t = self.tempo_atendimento  ## tempo padrão de atendimento em horas
-        model.td = self.tempo_km  ## horas / km de distância
-        model.T = self.horas_dia  ## horas de trabalho por dia
+    def k_mean_cluster2(self, k, max_size=25):
+        # coordinates = list(self.coordinates.values())
+        min_x = min(coord[0] for coord in self.coordinates.values())
+        max_x = max(coord[0] for coord in self.coordinates.values())
+        min_y = min(coord[1] for coord in self.coordinates.values())
+        max_y = max(coord[1] for coord in self.coordinates.values())
+        c = [(uniform(min_x, max_x), uniform(min_y, max_y)) for i in range(k)]
+        error = float('inf')
+        while error >= 0.01:
+            self.nodes_set_c = [[0]] * k
+            for node, x in zip(self.coordinates.keys(), self.coordinates.values()):
+                if node != 0:
+                    min_distance = float('inf')
+                    c_id = None
+                    for i, center in enumerate(c):
+                        if self.distance(x, center) < min_distance:
+                            min_distance = self.distance(x, center)
+                            c_id = i
+                            print('node {} to cluster {}'.format(node, c_id))
+                    self.nodes_set_c[c_id].append(node)
+            print(self.nodes_set_c)
+            exit()
+            new_c = [(mean([self.coordinates[node][0] for node in nodes]),
+                      mean([self.coordinates[node][1] for node in nodes])) for nodes in self.nodes_set_c]
+            # print(new_c)
+            error = sum(self.distance(center, new_center) for center, new_center in zip(c, new_c))
+            c = list(new_c)
+        repeat = True
+        print(self.nodes_set_c)
+        while repeat:
+            over_size_cluster = False
+            for id, cluster in enumerate(self.nodes_set_c):
+                if len(cluster) > max_size:
+                    over_size_cluster = True
+                    min_x = min(coord[0] for i, coord in enumerate(self.coordinates.values()) if i in cluster)
+                    max_x = max(coord[0] for i, coord in enumerate(self.coordinates.values()) if i in cluster)
+                    min_y = min(coord[1] for i, coord in enumerate(self.coordinates.values()) if i in cluster)
+                    max_y = max(coord[1] for i, coord in enumerate(self.coordinates.values()) if i in cluster)
+                    c = [(uniform(min_x, max_x), uniform(min_y, max_y)) for i in range(2)]
+                    error = float('inf')
+                    while error >= 0.01:
+                        temp_nodes_set_c = [[0]] * 2
+                        for node, x in zip(self.coordinates.keys(), self.coordinates.values()):
+                            if node != 0 and node in cluster:
+                                min_distance = float('inf')
+                                c_id = None
+                                for i, center in enumerate(c):
+                                    if self.distance(x, center) < min_distance:
+                                        min_distance = self.distance(x, center)
+                                        c_id = i
+                                temp_nodes_set_c[c_id].append(node)
+                        new_c = [(mean([self.coordinates[node][0] for node in nodes] + [self.coordinates[0][0]]),
+                                  mean([self.coordinates[node][1] for node in nodes] + [self.coordinates[0][1]])) for
+                                 nodes in temp_nodes_set_c]
+                        # print(new_c)
+                        error = sum(self.distance(center, new_center) for center, new_center in zip(c, new_c))
+                        c = list(new_c)
+                    self.nodes_set_c.pop(id)
+                    self.nodes_set_c += temp_nodes_set_c
+                    break
+            if not over_size_cluster:
+                repeat = False
 
-        model.all_nodes = Set(
-            initialize=self.all_nodes
-        )
-        model.client_nodes = Set(
-            initialize=self.client_nodes
-        )
-
-        # variáveis
-        model.x = Var(model.all_nodes, model.all_nodes, within=Binary)
-        model.u = Var(model.all_nodes, within=NonNegativeIntegers)
-        # objetivo
-        model.obj = Objective(
-            expr=sum(
-                model.d[i, j] * model.x[i, j]
-                for i in model.all_nodes for j in model.all_nodes),
-            sense=minimize
-        )
-        # restrições de chegada e saída dos pontos de visita
-        model.const1 = Constraint(
-            expr=sum(model.x[0, j] for j in model.client_nodes) == 2
-        )
-        model.const2 = Constraint(
-            expr=sum(model.x[i, 0] for i in model.client_nodes) == 2
-        )
-        # restrições de chegada e saída dos pontos de visita
-        model.constset1 = ConstraintList()
-        for j in model.client_nodes:
-            model.constset1.add(
-                sum(model.x[i, j] for i in model.all_nodes if i != j) == 1
-            )
-        model.constset2 = ConstraintList()
-        for i in model.client_nodes:
-            model.constset2.add(
-                sum(model.x[i, j] for j in model.all_nodes if i != j) == 1
-            )
-        # restrição de eliminação de subrotas (Miller-Tucker-Zemlin)
-        model.constset3 = ConstraintList()
-        for i in model.client_nodes:
-            for j in model.client_nodes:
-                if i != j:
-                    model.constset3.add(
-                        model.u[i] - model.u[j] + (self.n // 2) * model.x[i, j] <= self.n // 2 - 1
-                    )
-        # solver
-        solver = SolverFactory('cplex')
-        solver.options['timelimit'] = 120
-        solver.solve(model, tee=True)
-        self.m = int((model.obj.value() * model.td + self.n * model.t) / model.T) + 1
-        self.p = self.n // self.m
-        self.x = {(i, j): 1 if model.x[i, j].value == 1.0 else 0 for i in model.all_nodes for j in model.all_nodes}
-        self.get_results()
-        self.nodes_set = []
-        for arcs in self.arcs_sequence:
-            self.nodes_set.append([0])
-            for arc in arcs:
-                self.nodes_set[-1].append(arc[1])
-            self.nodes_set[-1] = self.nodes_set[-1][:-1]
-            self.nodes_set[-1].sort()
-
-    def solve_full(self, timelimit):
-        self.pre_tsp()
-        model = ConcreteModel()
-        # parâmetros
-        model.m = self.m
-        model.d = self.d
-        model.all_nodes = Set(
-            initialize=self.all_nodes
-        )
-        model.client_nodes = Set(
-            initialize=self.client_nodes
-        )
-        # variáveis
-        model.x = Var(model.all_nodes, model.all_nodes, within=Binary)
-        model.u = Var(model.all_nodes, within=NonNegativeIntegers)
-        model.obj = Objective(
-            expr=sum(
-                model.d[i, j] * model.x[i, j]
-                for i in model.all_nodes for j in model.all_nodes),
-            sense=minimize
-        )
-        # restrições de saída e chegada do ponto inicial
-        model.const1 = Constraint(
-            expr=sum(model.x[0, j] for j in model.client_nodes) == model.m
-        )
-        model.const2 = Constraint(
-            expr=sum(model.x[i, 0] for i in model.client_nodes) == model.m
-        )
-        # restrições de chegada e saída dos pontos de visita
-        model.constset1 = ConstraintList()
-        for j in model.client_nodes:
-            model.constset1.add(
-                sum(model.x[i, j] for i in model.all_nodes if i != j) == 1
-            )
-        model.constset2 = ConstraintList()
-        for i in model.client_nodes:
-            model.constset2.add(
-                sum(model.x[i, j] for j in model.all_nodes if i != j) == 1
-            )
-        # restrição de eliminação de subrotas (Miller-Tucker-Zemlin)
-        model.constset3 = ConstraintList()
-        for i in model.client_nodes:
-            for j in model.client_nodes:
-                if i != j:
-                    model.constset3.add(
-                        model.u[i] - model.u[j] + self.p * model.x[i, j] <= self.p - 1
-                    )
-        # solver
-        solver = SolverFactory('cplex')
-        solver.options['timelimit'] = timelimit
-        solver.solve(model, tee=True)
-        self.x = {(i, j): 1 if model.x[i, j].value == 1.0 else 0 for i in model.all_nodes for j in model.all_nodes}
+        print('cluster set:----n={}'.format(len(self.nodes_set_c)))
+        print(self.nodes_set_c)
 
     def solve_partitioned(self, timelimit, partition, k=4):
-        if partition == 4:
-            self.linear_partition_four()
-            nodes_set = self.nodes_set_f
-        elif partition == 3:
-            self.linear_partition_three()
-            nodes_set = self.nodes_set_t
-        elif partition == 'cluster':
-            self.k_mean_cluster(k)
+        if partition == 'cluster':
+            self.k_mean_cluster2(k)
             nodes_set = self.nodes_set_c
-        elif partition == 2:
-            self.linear_partition()
-            nodes_set = self.nodes_set
         elif partition == 1:
             nodes_set = [self.all_nodes]
         else:
@@ -535,11 +375,16 @@ class TSPModel:
             print('start')
             solver.options['timelimit'] = timelimit
             solver.options['emphasis_memory'] = 'y'
-            solver.solve(model, tee=True)
-            self.output['total_distance'] += sum(self.d[i, j] * model.x[i, j, k].value
-                                                 for i in model.all_nodes
-                                                 for j in model.all_nodes
-                                                 for k in model.days if model.x[i, j, k].value is not None)
+            solver.solve(model, tee=False)
+            print('finished')
+            for i in model.all_nodes:
+                for j in model.all_nodes:
+                    for k in model.days:
+                        try:
+                            if model.x[i, j, k].value is not None:
+                                self.output['total_distance'] += self.d[i, j] * model.x[i, j, k].value
+                        except:
+                            pass
             for i in model.all_nodes:
                 for j in model.all_nodes:
                     if sum(model.x[i, j, k].value for k in model.days if model.x[i, j, k].value is not None) == 1.0:
@@ -582,7 +427,7 @@ class TSPModel:
         self.output['total_time_in_hours'] = sum(seq['time(h)'] for seq in self.output['sequences'])
         self.output['total_number_of_days'] = dia - 1
         self.output['average_working_time'] = self.output['total_time_in_hours'] / dia - 1
-        file = open('results/vendedor_{}_output.txt'.format(self.salesman[i]['id']), 'w')
+        file = open('results/vendedor_{}_output.txt'.format(self.salesmen[i]['id']), 'w')
         file.write(str(self.output))
         # print('Objeto de resposta do modelo:')
         # print(self.output)
@@ -617,14 +462,17 @@ class TSPModel:
         for arcs in self.arcs_sequence:
             color = next(cycol)
             for arc in arcs:
-                self.connect_points(x, y, arc[0], arc[1], color)
-        plt.savefig('results/vendedor_{}_output.png'.format(self.salesman[i]['id']))
+                try:
+                    self.connect_points(x, y, arc[0], arc[1], color)
+                except:
+                    pass
+        plt.savefig('results/vendedor_{}_output.png'.format(self.salesmen[i]['id']))
 
     def save_on_google(self, i):
         gc = self.connect_to_google()
-        wks = gc.open('resultados - rotas').worksheet(self.salesman[i]['id'])
+        wks = gc.open('resultados - rotas').worksheet(self.salesmen[i]['id'])
         i = 2
-        columns = ['ENTIDADEID', 'DESCRICAO', 'ENDEREÇO', 'dia', 'ordem']
+        columns = ['ENTIDADEID', 'DESCRICAO', 'ENDEREÇO', 'ROTAID', 'SEQUÊNCIA']
         for day in self.output['sequences']:
             j = 1
             for node in day['sequence']:
@@ -681,8 +529,8 @@ input_data = {
         11: (-3.843487789860545, -38.74566546750679),
         12: (-3.8627966544258188, -38.587290555785295),
         13: (-3.553873034380957, -38.819609163825476)},
-    'tempo_atendimento': 0.3,
-    'tempo_km': 1 / 40,
+    'tempo_atendimento': 40 / 60,
+    'tempo_km': 1 / 30,
     'horas_dia': 8
 }
 
@@ -695,31 +543,33 @@ if __name__ == '__main__':
     # instance.save_on_google()
     # instance.plot_solution()
     instance1 = TSPModel(input_data)
-    instance1.get_salesman()
-    t = 600
+    instance1.get_salesmen()
+    # instance1.check_all()
+    # exit()
+    t = 400
     # len(instance1.salesman)
-    for i in range(14, len(instance1.salesman)):
-        try:
-            instance = TSPModel(input_data)
-            instance.salesman = instance1.salesman
-            instance.get_coordinates(i)
-            instance.distance_set()
-            to_distant = instance.check_data()
-            print(instance.salesman[i]['id'])
-            if not to_distant:
-                n = len(instance.coordinates) / 26
-                if n <= 1:
-                    instance.solve_partitioned(timelimit=t, partition=1)
-                elif 1 < n <= 2:
-                    instance.solve_partitioned(timelimit=t, partition='cluster', k=2)
-                elif 2 < n <= 3:
-                    instance.solve_partitioned(timelimit=t, partition='cluster', k=3)
-                else:
-                    instance.solve_partitioned(timelimit=t, partition='cluster', k=4)
-                instance.generate_results(i)
-                instance.plot_solution(i)
-        except:
-            pass
+    # sales_id = [7162, 7307]
+    #             4487, 4180, 3840, 3446, 3331, 3297, 2413, 2307, 2173, 2172, 1266]
+    for i in range(len(instance1.salesmen)):
+        instance = TSPModel(input_data)
+        # try:
+        instance.salesmen = instance1.salesmen
+        print('--------------------------', instance.salesmen[i]['id'])
+        instance.get_coordinates(i)
+        instance.distance_set()
+        too_distante = instance.check_data(i)
+        if len(instance.d) > 1 and too_distante:
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            # instance.distance_set()
+            n = len(instance.coordinates) // 26 + 1
+            if n == 1:
+                instance.solve_partitioned(timelimit=t, partition=1)
+            else:
+                instance.solve_partitioned(timelimit=t, partition='cluster', k=n)
+            instance.generate_results(i)
+            instance.plot_solution(i)
+        # except:
+        #     pass
     # instance.solve_partitioned(timelimit=600, partition=1)
     # instance.generate_results()
     # instance.k_mean_cluster(4)
