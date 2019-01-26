@@ -9,6 +9,7 @@ import pprint
 from numpy import ones, vstack, arange
 from numpy.linalg import lstsq
 from statistics import mean
+import datetime
 
 
 class TSPModel:
@@ -207,7 +208,7 @@ class TSPModel:
         print('cluster set:----n={}'.format(len(self.nodes_set_c)))
         print(self.nodes_set_c)
 
-    def k_mean_cluster2(self, k, max_size=25):
+    def k_mean_cluster2(self, k, max_size=20):
         # coordinates = list(self.coordinates.values())
         min_x = min(coord[0] for coord in self.coordinates.values())
         max_x = max(coord[0] for coord in self.coordinates.values())
@@ -216,7 +217,7 @@ class TSPModel:
         c = [(uniform(min_x, max_x), uniform(min_y, max_y)) for i in range(k)]
         error = float('inf')
         while error >= 0.01:
-            self.nodes_set_c = [[0]] * k
+            self.nodes_set_c = [[0] for i in range(k)]
             for node, x in zip(self.coordinates.keys(), self.coordinates.values()):
                 if node != 0:
                     min_distance = float('inf')
@@ -225,12 +226,9 @@ class TSPModel:
                         if self.distance(x, center) < min_distance:
                             min_distance = self.distance(x, center)
                             c_id = i
-                            print('node {} to cluster {}'.format(node, c_id))
                     self.nodes_set_c[c_id].append(node)
-            print(self.nodes_set_c)
-            exit()
-            new_c = [(mean([self.coordinates[node][0] for node in nodes]),
-                      mean([self.coordinates[node][1] for node in nodes])) for nodes in self.nodes_set_c]
+            new_c = [(mean([self.coordinates[node][0] for node in nodes] + [self.coordinates[0][0]]),
+                      mean([self.coordinates[node][1] for node in nodes]  + [self.coordinates[0][1]])) for nodes in self.nodes_set_c]
             # print(new_c)
             error = sum(self.distance(center, new_center) for center, new_center in zip(c, new_c))
             c = list(new_c)
@@ -248,7 +246,7 @@ class TSPModel:
                     c = [(uniform(min_x, max_x), uniform(min_y, max_y)) for i in range(2)]
                     error = float('inf')
                     while error >= 0.01:
-                        temp_nodes_set_c = [[0]] * 2
+                        temp_nodes_set_c = [[0] for i in range(2)]
                         for node, x in zip(self.coordinates.keys(), self.coordinates.values()):
                             if node != 0 and node in cluster:
                                 min_distance = float('inf')
@@ -269,13 +267,18 @@ class TSPModel:
                     break
             if not over_size_cluster:
                 repeat = False
+        temp = []
+        for nodes in self.nodes_set_c:
+            if len(nodes) > 1:
+                temp.append(nodes)
+        self.nodes_set_c = list(temp)
 
         print('cluster set:----n={}'.format(len(self.nodes_set_c)))
         print(self.nodes_set_c)
 
     def solve_partitioned(self, timelimit, partition, k=4):
         if partition == 'cluster':
-            self.k_mean_cluster2(k)
+            self.k_mean_cluster(k)
             nodes_set = self.nodes_set_c
         elif partition == 1:
             nodes_set = [self.all_nodes]
@@ -372,7 +375,7 @@ class TSPModel:
             # solver
             print('model constructed')
             solver = SolverFactory('cplex')
-            print('start')
+            print('started at {}'.format(datetime.datetime.now()))
             solver.options['timelimit'] = timelimit
             solver.options['emphasis_memory'] = 'y'
             solver.solve(model, tee=False)
@@ -546,7 +549,7 @@ if __name__ == '__main__':
     instance1.get_salesmen()
     # instance1.check_all()
     # exit()
-    t = 400
+    t = 600
     # len(instance1.salesman)
     # sales_id = [7162, 7307]
     #             4487, 4180, 3840, 3446, 3331, 3297, 2413, 2307, 2173, 2172, 1266]
@@ -558,7 +561,7 @@ if __name__ == '__main__':
         instance.get_coordinates(i)
         instance.distance_set()
         too_distante = instance.check_data(i)
-        if len(instance.d) > 1 and too_distante:
+        if len(instance.d) > 1:
             print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
             # instance.distance_set()
             n = len(instance.coordinates) // 26 + 1
@@ -568,6 +571,7 @@ if __name__ == '__main__':
                 instance.solve_partitioned(timelimit=t, partition='cluster', k=n)
             instance.generate_results(i)
             instance.plot_solution(i)
+        exit()
         # except:
         #     pass
     # instance.solve_partitioned(timelimit=600, partition=1)
